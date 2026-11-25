@@ -1,0 +1,166 @@
+import { useState } from 'react'
+import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { Eye, EyeOff, Mail } from 'lucide-react'
+import { extractApiError } from '../api/client'
+import { useAuth } from '../context/useAuth'
+
+export function RegisterPage() {
+  const { user, register } = useAuth()
+  const navigate = useNavigate()
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+
+  if (user) {
+    return <Navigate to="/dashboard" replace />
+  }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError('')
+    setSubmitting(true)
+    try {
+      await register(name.trim(), email.trim(), password)
+      navigate('/dashboard')
+    } catch (err) {
+      setError(extractApiError(err, 'Failed to create account.'))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <main className="min-h-screen flex items-center justify-center p-4">
+      <div className="w-full max-w-md rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-7 shadow-lg">
+        <div className="flex items-center gap-3 mb-6">
+          <span className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center">
+            <Mail className="w-5 h-5" aria-hidden="true" />
+          </span>
+          <div>
+            <h1 className="text-xl font-bold tracking-tight">Create your account</h1>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Start automating smart email workflows with human approval
+            </p>
+          </div>
+        </div>
+
+        {error && (
+          <div
+            role="alert"
+            className="mb-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-700 dark:text-rose-300"
+          >
+            <span role="img" aria-label="Error">
+              ❌
+            </span>{' '}
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label htmlFor="register-name" className="block text-sm font-medium mb-1">
+              Full name <span aria-hidden="true">*</span>
+            </label>
+            <input
+              id="register-name"
+              name="name"
+              type="text"
+              autoComplete="name"
+              enterKeyHint="next"
+              required
+              minLength={2}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Alex Rivera"
+              className="mp-input w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3.5 py-2.5 text-sm"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="register-email" className="block text-sm font-medium mb-1">
+              Email address <span aria-hidden="true">*</span>
+            </label>
+            <span id="register-email-hint" className="block text-xs text-slate-500 dark:text-slate-400 mb-1">
+              Format: you@example.com
+            </span>
+            <input
+              id="register-email"
+              name="email"
+              type="email"
+              autoComplete="username"
+              spellCheck={false}
+              enterKeyHint="next"
+              aria-describedby="register-email-hint"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              className="mp-input w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3.5 py-2.5 text-sm"
+            />
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label htmlFor="register-password" className="block text-sm font-medium">
+                Password <span aria-hidden="true">*</span>
+              </label>
+              <button
+                type="button"
+                aria-pressed={showPassword}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                onClick={() => setShowPassword((prev) => !prev)}
+                className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline"
+              >
+                {showPassword ? (
+                  <>
+                    <EyeOff className="w-3.5 h-3.5" aria-hidden="true" />
+                    <span>Hide</span>
+                  </>
+                ) : (
+                  <>
+                    <Eye className="w-3.5 h-3.5" aria-hidden="true" />
+                    <span>Show</span>
+                  </>
+                )}
+              </button>
+            </div>
+            <span id="register-password-hint" className="block text-xs text-slate-500 dark:text-slate-400 mb-1">
+              At least 8 characters.
+            </span>
+            <input
+              id="register-password"
+              name="password"
+              type={showPassword ? 'text' : 'password'}
+              autoComplete="new-password"
+              enterKeyHint="done"
+              aria-describedby="register-password-hint"
+              minLength={8}
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="mp-input w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3.5 py-2.5 text-sm"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={submitting}
+            className="w-full rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 px-4 text-sm transition-colors disabled:opacity-60"
+          >
+            {submitting ? 'Creating account...' : 'Create account'}
+          </button>
+        </form>
+
+        <p className="mt-5 text-center text-sm text-slate-600 dark:text-slate-400">
+          Already have an account?{' '}
+          <Link to="/login" className="font-semibold text-blue-600 dark:text-blue-400 hover:underline">
+            Sign in
+          </Link>
+        </p>
+      </div>
+    </main>
+  )
+}

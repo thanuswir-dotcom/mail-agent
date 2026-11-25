@@ -1,0 +1,108 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light dark;
+  --mp-bg-light: #f8fafc;
+  --mp-bg-dark: #0b1120;
+  --mp-surface-light: #ffffff;
+  --mp-surface-dark: #111827;
+  --mp-border-light: #cbd5e1;
+  --mp-border-dark: #334155;
+  --mp-text-light: #0f172a;
+  --mp-text-dark: #f1f5f9;
+  --mp-muted-light: #475569;
+  --mp-muted-dark: #94a3b8;
+  --mp-accent-light: #2563eb;
+  --mp-accent-dark: #60a5fa;
+
+  --mp-bg: var(--mp-bg-light);
+  --mp-surface: var(--mp-surface-light);
+  --mp-border: var(--mp-border-light);
+  --mp-text: var(--mp-text-light);
+  --mp-muted: var(--mp-muted-light);
+  --mp-accent: var(--mp-accent-light);
+
+  @media (prefers-color-scheme: dark) {
+    --mp-bg: var(--mp-bg-dark);
+    --mp-surface: var(--mp-surface-dark);
+    --mp-border: var(--mp-border-dark);
+    --mp-text: var(--mp-text-dark);
+    --mp-muted: var(--mp-muted-dark);
+    --mp-accent: var(--mp-accent-dark);
+  }
+
+  @supports (color: light-dark(white, black)) {
+    --mp-bg: light-dark(var(--mp-bg-light), var(--mp-bg-dark));
+    --mp-surface: light-dark(var(--mp-surface-light), var(--mp-surface-dark));
+    --mp-border: light-dark(var(--mp-border-light), var(--mp-border-dark));
+    --mp-text: light-dark(var(--mp-text-light), var(--mp-text-dark));
+    --mp-muted: light-dark(var(--mp-muted-light), var(--mp-muted-dark));
+    --mp-accent: light-dark(var(--mp-accent-light), var(--mp-accent-dark));
+  }
+
+  accent-color: var(--mp-accent);
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background-color: var(--mp-bg);
+  color: var(--mp-text);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Native modal scroll containment per modern web guidance */
+dialog:modal {
+  overscroll-behavior: contain;
+  margin: auto;
+  border: 1px solid var(--mp-border);
+  border-radius: 1rem;
+  background-color: var(--mp-surface);
+  color: var(--mp-text);
+  padding: 0;
+  max-width: min(92vw, 38rem);
+  width: 100%;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35);
+}
+
+dialog::backdrop {
+  overflow: hidden;
+  overscroll-behavior: contain;
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(4px);
+}
+
+/* Form controls accessible typography & focus */
+input:not([type="checkbox"]):not([type="radio"]),
+textarea,
+select {
+  font: inherit;
+  font-size: max(1rem, 1em);
+}
+
+:is(input, textarea, select, button, a):focus-visible {
+  outline: 3px solid var(--mp-accent);
+  outline-offset: 2px;
+}
+
+/* Deferred validation styling after user interaction */
+.mp-input:is(:user-invalid, .user-invalid-fallback) {
+  border-color: #dc2626;
+}
+
+.mp-input:is(:user-valid, .user-valid-fallback) {
+  border-color: #16a34a;
+}
+
+.visually-hidden:where(:not(:focus-within, :active)) {
+  position: absolute !important;
+  clip-path: inset(50%) !important;
+  overflow: hidden !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: -1px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  white-space: nowrap !important;
+}
