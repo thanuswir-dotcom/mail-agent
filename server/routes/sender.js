@@ -1,8 +1,8 @@
 import express from 'express'
 import { z } from 'zod'
 import { requireAuth } from '../middleware/auth.js'
+import { saveUser, toSafeProfile } from '../services/dbStore.js'
 import { verifySmtpCredentials } from '../services/emailDeliveryService.js'
-import { syncUserToSupabase } from '../services/supabaseService.js'
 
 const router = express.Router()
 
@@ -44,10 +44,9 @@ router.post('/smtp', async (req, res) => {
     }
 
     req.user.smtpConfig = config
-    await req.user.save()
-    void syncUserToSupabase(req.user)
+    const saved = await saveUser(req.user)
 
-    return res.json({ user: req.user.toSafeProfile() })
+    return res.json({ user: toSafeProfile(saved) })
   } catch (error) {
     return res.status(500).json({ error: 'Failed to save SMTP settings.', message: error.message })
   }
@@ -62,9 +61,8 @@ router.post('/smtp/disconnect', async (req, res) => {
       port: 465,
       secure: true,
     }
-    await req.user.save()
-    void syncUserToSupabase(req.user)
-    return res.json({ user: req.user.toSafeProfile() })
+    const saved = await saveUser(req.user)
+    return res.json({ user: toSafeProfile(saved) })
   } catch (error) {
     return res.status(500).json({ error: 'Failed to remove SMTP sender.', message: error.message })
   }

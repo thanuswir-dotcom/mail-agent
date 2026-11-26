@@ -1,13 +1,14 @@
 import express from 'express'
-import mongoose from 'mongoose'
 import { z } from 'zod'
-import { Contact } from '../models/Contact.js'
 import { requireAuth } from '../middleware/auth.js'
 import {
-  deleteContactFromSupabase,
-  syncContactsToSupabase,
-  syncContactToSupabase,
-} from '../services/supabaseService.js'
+  createContact,
+  deleteContact,
+  isValidId,
+  listContacts,
+  seedContacts,
+  updateContact,
+} from '../services/dbStore.js'
 
 const router = express.Router()
 
@@ -29,18 +30,7 @@ router.use(requireAuth)
 router.get('/', async (req, res) => {
   try {
     const q = String(req.query.q || '').trim()
-    const filter = { userId: req.user._id }
-    if (q) {
-      const regex = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
-      filter.$or = [
-        { name: regex },
-        { email: regex },
-        { company: regex },
-        { role: regex },
-        { tags: regex },
-      ]
-    }
-    const contacts = await Contact.find(filter).sort({ name: 1 }).lean()
+    const contacts = await listContacts(req.user._id, q)
     return res.json({ contacts })
   } catch (error) {
     return res.status(500).json({ error: 'Failed to load contacts.', message: error.message })
@@ -57,14 +47,10 @@ router.post('/', async (req, res) => {
       })
     }
 
-    const contact = await Contact.create({
-      ...parsed.data,
-      userId: req.user._id,
-    })
-    void syncContactToSupabase(contact, req.user)
+    const contact = await createContact(req.user._id, parsed.data)
     return res.status(201).json({ contact })
   } catch (error) {
-    if (error?.code === 11000) {
+    if (error?.code === '23505' || error?.code === 11000) {
       return res.status(409).json({ error: 'A contact with this email already exists.' })
     }
     return res.status(500).json({ error: 'Failed to create contact.', message: error.message })
@@ -73,7 +59,7 @@ router.post('/', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   try {
-    if (!mongoose.isValidObjectId(req.params.id)) {
+    if (!isValidId(req.params.id)) {
       return res.status(400).json({ error: 'Invalid contact ID.' })
     }
     const parsed = contactSchema.safeParse(req.body)
@@ -83,18 +69,13 @@ router.put('/:id', async (req, res) => {
       })
     }
 
-    const updated = await Contact.findOneAndUpdate(
-      { _id: req.params.id, userId: req.user._id },
-      parsed.data,
-      { new: true, runValidators: true }
-    )
+    const updated = await updateContact(req.params.id, req.user._id, parsed.data)
     if (!updated) {
       return res.status(404).json({ error: 'Contact not found.' })
     }
-    void syncContactToSupabase(updated, req.user)
     return res.json({ contact: updated })
   } catch (error) {
-    if (error?.code === 11000) {
+    if (error?.code === '23505' || error?.code === 11000) {
       return res.status(409).json({ error: 'A contact with this email already exists.' })
     }
     return res.status(500).json({ error: 'Failed to update contact.', message: error.message })
@@ -103,17 +84,13 @@ router.put('/:id', async (req, res) => {
 
 router.delete('/:id', async (req, res) => {
   try {
-    if (!mongoose.isValidObjectId(req.params.id)) {
+    if (!isValidId(req.params.id)) {
       return res.status(400).json({ error: 'Invalid contact ID.' })
     }
-    const deleted = await Contact.findOneAndDelete({
-      _id: req.params.id,
-      userId: req.user._id,
-    })
+    const deleted = await deleteContact(req.params.id, req.user._id)
     if (!deleted) {
       return res.status(404).json({ error: 'Contact not found.' })
     }
-    void deleteContactFromSupabase(req.params.id)
     return res.json({ deletedId: req.params.id })
   } catch (error) {
     return res.status(500).json({ error: 'Failed to delete contact.', message: error.message })
@@ -161,22 +138,11 @@ router.post('/seed', async (req, res) => {
       },
     ]
 
-    const inserted = []
-    for (const item of starterContacts) {
-      const doc = await Contact.findOneAndUpdate(
-        { userId: req.user._id, email: item.email },
-        { $setOnInsert: { ...item, userId: req.user._id } },
-        { upsert: true, new: true }
-      )
-      inserted.push(doc)
-    }
-
-    void syncContactsToSupabase(inserted, req.user)
-    return res.json({ contacts: inserted })
+    const contacts = await seedContacts(req.user._id, starterContacts)
+    return res.json({ contacts })
   } catch (error) {
     return res.status(500).json({ error: 'Failed to seed sample contacts.', message: error.message })
   }
 })
 
 export default router
-

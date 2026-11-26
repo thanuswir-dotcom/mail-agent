@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken'
 import { env } from '../config/env.js'
-import { User } from '../models/User.js'
+import { findUserById } from '../services/dbStore.js'
 
 export function signToken(userId) {
   return jwt.sign({ sub: userId }, env.JWT_SECRET, {
@@ -21,7 +21,7 @@ export async function requireAuth(req, res, next) {
     }
 
     const payload = jwt.verify(token, env.JWT_SECRET)
-    const user = await User.findById(payload.sub)
+    const user = await findUserById(payload.sub)
     if (!user) {
       return res.status(401).json({ error: 'Invalid or expired session.' })
     }

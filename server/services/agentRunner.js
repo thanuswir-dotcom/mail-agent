@@ -1,8 +1,6 @@
-import { Task } from '../models/Task.js'
-import { User } from '../models/User.js'
 import { AbortError } from '../utils/retry.js'
+import { findTaskById, findUserById, saveTask } from './dbStore.js'
 import * as geminiService from './geminiService.js'
-import { syncTaskToSupabase } from './supabaseService.js'
 import {
   getGeminiFunctionDeclarations,
   invokeValidatedTool,
@@ -47,8 +45,8 @@ export async function executeTaskAgent({
 
   const runTurnFn = aiClient?.runAgentTurn || geminiService.runAgentTurn
 
-  const task = await Task.findOne({ _id: taskId, userId })
-  const user = await User.findById(userId)
+  const task = await findTaskById(taskId, userId)
+  const user = await findUserById(userId)
 
   if (!task || !user) {
     activeRuns.delete(key)
@@ -61,13 +59,13 @@ export async function executeTaskAgent({
     stepCounter += 1
     task.trace.push({
       stepIndex: stepCounter,
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       attempts: 1,
       durationMs: 0,
       error: '',
       ...entry,
     })
-    await task.save()
+    await saveTask(task)
     return task.trace[task.trace.length - 1]
   }
 
@@ -75,13 +73,13 @@ export async function executeTaskAgent({
     task.status = 'running'
     task.stoppedByUser = false
     task.error = ''
-    task.startedAt = new Date()
+    task.startedAt = new Date().toISOString()
     task.completedAt = null
     task.plan = task.plan.map((s) => ({
-      ...(typeof s.toObject === 'function' ? s.toObject() : s),
+      ...s,
       status: 'pending',
     }))
-    await task.save()
+    await saveTask(task)
 
     await appendTrace({
       type: 'plan',
@@ -130,6 +128,10 @@ export async function executeTaskAgent({
 
     for (let turn = 1; turn <= maxTurns; turn += 1) {
       if (signal.aborted) {
+        throw new AbortError()
+      }
+      const latest = await findTaskById(taskId, userId)
+      if (latest?.stoppedByUser) {
         throw new AbortError()
       }
 
@@ -218,9 +220,9 @@ export async function executeTaskAgent({
           attempts: 1,
           durationMs: 0,
           error: '',
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
         })
-        await task.save()
+        await saveTask(task)
 
         const toolStart = Date.now()
 
@@ -255,7 +257,7 @@ export async function executeTaskAgent({
           if (matchedStep) {
             matchedStep.status = result.fallbackUsed ? 'failed' : 'completed'
           }
-          await task.save()
+          await saveTask(task)
 
           if (result.fallbackUsed) {
             await appendTrace({
@@ -283,7 +285,7 @@ export async function executeTaskAgent({
             traceItem.error = 'Stopped by user'
             traceItem.durationMs = Date.now() - toolStart
             if (matchedStep) matchedStep.status = 'failed'
-            await task.save()
+            await saveTask(task)
             throw new AbortError()
           }
 
@@ -294,7 +296,7 @@ export async function executeTaskAgent({
           if (matchedStep) {
             matchedStep.status = 'failed'
           }
-          await task.save()
+          await saveTask(task)
 
           functionResponseParts.push({
             functionResponse: {
@@ -328,9 +330,8 @@ export async function executeTaskAgent({
       (task.emailDraft?.approvalStatus === 'pending_approval'
         ? 'Email draft prepared and awaiting your explicit approval.'
         : 'Agent run completed.')
-    task.completedAt = new Date()
-    await task.save()
-    void syncTaskToSupabase(task, user)
+    task.completedAt = new Date().toISOString()
+    await saveTask(task)
     return task
   } catch (error) {
     for (const step of task.plan) {
@@ -349,7 +350,7 @@ export async function executeTaskAgent({
     task.status = 'failed'
     task.stoppedByUser = stopped
     task.error = stopped ? 'Agent execution stopped by user.' : error.message
-    task.completedAt = new Date()
+    task.completedAt = new Date().toISOString()
 
     stepCounter += 1
     task.trace.push({
@@ -363,11 +364,10 @@ export async function executeTaskAgent({
       attempts: error.attempts || 1,
       durationMs: 0,
       error: task.error,
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
     })
 
-    await task.save()
-    void syncTaskToSupabase(task, user)
+    await saveTask(task)
     return task
   } finally {
     activeRuns.delete(key)

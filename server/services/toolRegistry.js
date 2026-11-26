@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { Contact } from '../models/Contact.js'
+import { findContactByEmail, listContacts, saveTask } from './dbStore.js'
 import * as googleService from './googleService.js'
 
 const EMOJI_REGEX = /\p{Extended_Pictographic}/gu
@@ -164,26 +164,10 @@ export const TOOL_DEFINITIONS = [
     inputSchema: findContactsInputSchema,
     outputSchema: findContactsOutputSchema,
     async execute(input, context) {
-      const escaped = input.query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      const regex = new RegExp(escaped, 'i')
-
-      const docs = await Contact.find({
-        userId: context.user._id,
-        $or: [
-          { name: regex },
-          { email: regex },
-          { company: regex },
-          { role: regex },
-          { relationshipType: regex },
-          { tags: regex },
-          { notes: regex },
-        ],
-      })
-        .limit(input.limit)
-        .lean()
+      const docs = await listContacts(context.user._id, input.query, input.limit)
 
       const matches = docs.map((d) => ({
-        id: d._id.toString(),
+        id: String(d._id),
         name: d.name,
         email: d.email,
         company: d.company || '',
@@ -322,10 +306,7 @@ export const TOOL_DEFINITIONS = [
       // Determine official vs unofficial from contact record or goal wording
       let resolvedType = input.recipientType || 'official'
       if (resolvedType === 'official') {
-        const contact = await Contact.findOne({
-          userId: context.user._id,
-          email: input.recipientEmail.toLowerCase(),
-        }).lean()
+        const contact = await findContactByEmail(context.user._id, input.recipientEmail)
         if (
           contact?.relationshipType === 'unofficial' ||
           UNOFFICIAL_GOAL_CUE.test(context.task?.goal || '')
@@ -405,7 +386,7 @@ export const TOOL_DEFINITIONS = [
         sentAt: null,
         error: gmailError,
       }
-      await context.task.save()
+      await saveTask(context.task)
 
       return {
         output: {

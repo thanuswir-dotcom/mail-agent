@@ -10,11 +10,7 @@ import contactsRoutes from './routes/contacts.js'
 import googleRoutes from './routes/google.js'
 import senderRoutes from './routes/sender.js'
 import tasksRoutes from './routes/tasks.js'
-import {
-  backfillUserToSupabase,
-  checkSupabaseConnection,
-  isSupabaseConfigured,
-} from './services/supabaseService.js'
+import { checkDatabaseHealth, isSupabaseConfigured } from './services/dbStore.js'
 
 export function createApp() {
   const app = express()
@@ -38,10 +34,16 @@ export function createApp() {
   )
   app.use(express.json({ limit: '1mb' }))
 
-  app.get('/api/health', (_req, res) => {
+  app.get('/api/health', async (_req, res) => {
+    const db = await checkDatabaseHealth().catch((err) => ({
+      configured: isSupabaseConfigured(),
+      connected: false,
+      error: err.message,
+    }))
     res.json({
       ok: true,
       service: 'MailPilot AI Backend',
+      database: db,
       geminiConfigured: Boolean(env.GEMINI_API_KEY),
       googleOAuthConfigured: Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET),
       supabaseConfigured: isSupabaseConfigured(),
@@ -50,25 +52,11 @@ export function createApp() {
   })
 
   app.get('/api/supabase/status', requireAuth, async (_req, res) => {
-    const status = await checkSupabaseConnection()
+    const status = await checkDatabaseHealth()
     return res.json({
       ...status,
       supabaseUrl: env.SUPABASE_URL || '',
     })
-  })
-
-  app.post('/api/supabase/sync', requireAuth, async (req, res) => {
-    if (!isSupabaseConfigured()) {
-      return res.status(503).json({
-        error:
-          'SUPABASE_SECRET_KEY is not configured in server/.env yet. Add your project secret key to enable backend Postgres sync.',
-      })
-    }
-    const result = await backfillUserToSupabase(req.user)
-    if (!result.synced) {
-      return res.status(502).json({ error: result.error || 'Failed to sync to Supabase.' })
-    }
-    return res.json(result)
   })
 
   app.use('/api/auth', authRoutes)
@@ -85,7 +73,7 @@ export function createApp() {
   const distDir = path.resolve(__dirname, '../dist')
   const distIndex = path.join(distDir, 'index.html')
 
-  if (env.NODE_ENV === 'production' && fs.existsSync(distIndex)) {
+  if (env.NODE_ENV === 'production' && !process.env.VERCEL && fs.existsSync(distIndex)) {
     app.use(express.static(distDir))
     app.get('*', (_req, res) => {
       res.sendFile(distIndex)

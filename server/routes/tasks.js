@@ -1,13 +1,19 @@
+import { waitUntil } from '@vercel/functions'
 import express from 'express'
-import mongoose from 'mongoose'
 import { z } from 'zod'
-import { Contact } from '../models/Contact.js'
-import { Task } from '../models/Task.js'
 import { requireAuth } from '../middleware/auth.js'
 import { executeTaskAgent, isTaskRunning, stopTaskRun } from '../services/agentRunner.js'
+import {
+  countContacts,
+  createTask,
+  deleteTask,
+  findTaskById,
+  isValidId,
+  listTasks,
+  saveTask,
+} from '../services/dbStore.js'
 import { deliverApprovedEmail } from '../services/emailDeliveryService.js'
 import { generateTaskPlan } from '../services/geminiService.js'
-import { deleteTaskFromSupabase, syncTaskToSupabase } from '../services/supabaseService.js'
 import { enhanceUnofficialEmail } from '../services/toolRegistry.js'
 
 const router = express.Router()
@@ -64,13 +70,12 @@ router.use(requireAuth)
 
 router.get('/', async (req, res) => {
   try {
-    const filter = { userId: req.user._id }
-    const status = String(req.query.status || '').trim()
-    if (['pending', 'running', 'completed', 'failed'].includes(status)) {
-      filter.status = status
-    }
+    const rawStatus = String(req.query.status || '').trim()
+    const status = ['pending', 'running', 'completed', 'failed'].includes(rawStatus)
+      ? rawStatus
+      : ''
 
-    const tasks = await Task.find(filter).sort({ createdAt: -1 }).limit(50).lean()
+    const tasks = await listTasks(req.user._id, status)
     return res.json({ tasks })
   } catch (error) {
     return res.status(500).json({ error: 'Failed to load task history.', message: error.message })
@@ -79,10 +84,10 @@ router.get('/', async (req, res) => {
 
 router.get('/:id', async (req, res) => {
   try {
-    if (!mongoose.isValidObjectId(req.params.id)) {
+    if (!isValidId(req.params.id)) {
       return res.status(400).json({ error: 'Invalid task ID.' })
     }
-    const task = await Task.findOne({ _id: req.params.id, userId: req.user._id }).lean()
+    const task = await findTaskById(req.params.id, req.user._id)
     if (!task) {
       return res.status(404).json({ error: 'Task not found.' })
     }
@@ -101,7 +106,7 @@ router.post('/plan', async (req, res) => {
       })
     }
 
-    const contactsCount = await Contact.countDocuments({ userId: req.user._id })
+    const contactsCount = await countContacts(req.user._id)
     const googleConnected = Boolean(
       req.user.googleTokens?.refresh_token || req.user.googleTokens?.access_token
     )
@@ -112,7 +117,7 @@ router.post('/plan', async (req, res) => {
       googleConnected,
     })
 
-    const task = await Task.create({
+    const task = await createTask({
       userId: req.user._id,
       goal: parsed.data.goal,
       status: 'pending',
@@ -128,11 +133,11 @@ router.post('/plan', async (req, res) => {
           status: 'completed',
           attempts,
           durationMs: 0,
+          timestamp: new Date().toISOString(),
         },
       ],
     })
 
-    void syncTaskToSupabase(task, req.user)
     return res.status(201).json({ task })
   } catch (error) {
     const status = error.status || 500
@@ -144,7 +149,7 @@ router.post('/plan', async (req, res) => {
 
 router.patch('/:id/plan', async (req, res) => {
   try {
-    if (!mongoose.isValidObjectId(req.params.id)) {
+    if (!isValidId(req.params.id)) {
       return res.status(400).json({ error: 'Invalid task ID.' })
     }
     const parsed = updatePlanSchema.safeParse(req.body)
@@ -154,7 +159,7 @@ router.patch('/:id/plan', async (req, res) => {
       })
     }
 
-    const task = await Task.findOne({ _id: req.params.id, userId: req.user._id })
+    const task = await findTaskById(req.params.id, req.user._id)
     if (!task) {
       return res.status(404).json({ error: 'Task not found.' })
     }
@@ -171,11 +176,11 @@ router.patch('/:id/plan', async (req, res) => {
       input: { steps: task.plan },
       output: null,
       status: 'completed',
+      timestamp: new Date().toISOString(),
     })
-    await task.save()
-    void syncTaskToSupabase(task, req.user)
+    const saved = await saveTask(task)
 
-    return res.json({ task })
+    return res.json({ task: saved })
   } catch (error) {
     return res.status(500).json({ error: 'Failed to update plan.', message: error.message })
   }
@@ -183,11 +188,11 @@ router.patch('/:id/plan', async (req, res) => {
 
 router.post('/:id/run', async (req, res) => {
   try {
-    if (!mongoose.isValidObjectId(req.params.id)) {
+    if (!isValidId(req.params.id)) {
       return res.status(400).json({ error: 'Invalid task ID.' })
     }
 
-    const task = await Task.findOne({ _id: req.params.id, userId: req.user._id })
+    const task = await findTaskById(req.params.id, req.user._id)
     if (!task) {
       return res.status(404).json({ error: 'Task not found.' })
     }
@@ -198,19 +203,23 @@ router.post('/:id/run', async (req, res) => {
     task.status = 'running'
     task.stoppedByUser = false
     task.error = ''
-    await task.save()
+    const saved = await saveTask(task)
 
-    // Launch asynchronously so UI can poll trace and invoke Stop at any time
-    setImmediate(() => {
+    const launchAgent = () =>
       executeTaskAgent({
-        taskId: task._id,
+        taskId: saved._id,
         userId: req.user._id,
       }).catch(() => {
         // Handled and persisted inside executeTaskAgent
       })
-    })
 
-    return res.status(202).json({ task })
+    if (process.env.VERCEL) {
+      waitUntil(launchAgent())
+    } else {
+      setImmediate(() => void launchAgent())
+    }
+
+    return res.status(202).json({ task: saved })
   } catch (error) {
     return res.status(500).json({ error: 'Failed to start agent.', message: error.message })
   }
@@ -218,11 +227,11 @@ router.post('/:id/run', async (req, res) => {
 
 router.post('/:id/stop', async (req, res) => {
   try {
-    if (!mongoose.isValidObjectId(req.params.id)) {
+    if (!isValidId(req.params.id)) {
       return res.status(400).json({ error: 'Invalid task ID.' })
     }
 
-    const task = await Task.findOne({ _id: req.params.id, userId: req.user._id })
+    const task = await findTaskById(req.params.id, req.user._id)
     if (!task) {
       return res.status(404).json({ error: 'Task not found.' })
     }
@@ -233,7 +242,7 @@ router.post('/:id/stop', async (req, res) => {
       task.status = 'failed'
       task.stoppedByUser = true
       task.error = 'Agent execution stopped by user.'
-      task.completedAt = new Date()
+      task.completedAt = new Date().toISOString()
       task.trace.push({
         stepIndex: task.trace.length + 1,
         type: 'system',
@@ -243,12 +252,12 @@ router.post('/:id/stop', async (req, res) => {
         output: null,
         status: 'failed',
         error: task.error,
+        timestamp: new Date().toISOString(),
       })
-      await task.save()
+      await saveTask(task)
     }
 
-    const refreshed = await Task.findById(task._id).lean()
-    void syncTaskToSupabase(refreshed, req.user)
+    const refreshed = await findTaskById(task._id, req.user._id)
     return res.json({ task: refreshed, stopRequested: true })
   } catch (error) {
     return res.status(500).json({ error: 'Failed to stop agent.', message: error.message })
@@ -257,7 +266,7 @@ router.post('/:id/stop', async (req, res) => {
 
 router.patch('/:id/draft', async (req, res) => {
   try {
-    if (!mongoose.isValidObjectId(req.params.id)) {
+    if (!isValidId(req.params.id)) {
       return res.status(400).json({ error: 'Invalid task ID.' })
     }
     const parsed = updateDraftSchema.safeParse(req.body)
@@ -267,7 +276,7 @@ router.patch('/:id/draft', async (req, res) => {
       })
     }
 
-    const task = await Task.findOne({ _id: req.params.id, userId: req.user._id })
+    const task = await findTaskById(req.params.id, req.user._id)
     if (!task) {
       return res.status(404).json({ error: 'Task not found.' })
     }
@@ -285,17 +294,14 @@ router.patch('/:id/draft', async (req, res) => {
     }
 
     task.emailDraft = {
-      ...(typeof task.emailDraft?.toObject === 'function'
-        ? task.emailDraft.toObject()
-        : task.emailDraft || {}),
+      ...(task.emailDraft || {}),
       ...draftFields,
       subject: nextSubject,
       body: nextBody,
       approvalStatus: 'pending_approval',
     }
-    await task.save()
-    void syncTaskToSupabase(task, req.user)
-    return res.json({ task })
+    const saved = await saveTask(task)
+    return res.json({ task: saved })
   } catch (error) {
     return res.status(500).json({ error: 'Failed to update draft.', message: error.message })
   }
@@ -303,7 +309,7 @@ router.patch('/:id/draft', async (req, res) => {
 
 router.post('/:id/approve-send', async (req, res) => {
   try {
-    if (!mongoose.isValidObjectId(req.params.id)) {
+    if (!isValidId(req.params.id)) {
       return res.status(400).json({ error: 'Invalid task ID.' })
     }
     const parsed = approveSendSchema.safeParse(req.body)
@@ -313,7 +319,7 @@ router.post('/:id/approve-send', async (req, res) => {
       })
     }
 
-    const task = await Task.findOne({ _id: req.params.id, userId: req.user._id })
+    const task = await findTaskById(req.params.id, req.user._id)
     if (!task) {
       return res.status(404).json({ error: 'Task not found.' })
     }
@@ -350,11 +356,9 @@ router.post('/:id/approve-send', async (req, res) => {
       preferredMethod: parsed.data.preferredMethod,
     })
 
-    const now = new Date()
+    const now = new Date().toISOString()
     task.emailDraft = {
-      ...(typeof task.emailDraft?.toObject === 'function'
-        ? task.emailDraft.toObject()
-        : task.emailDraft || {}),
+      ...(task.emailDraft || {}),
       recipientName: finalName,
       recipientEmail: finalTo,
       recipientType: finalType,
@@ -388,15 +392,15 @@ router.post('/:id/approve-send', async (req, res) => {
         messageId: sentResult.gmailMessageId,
         threadId: sentResult.gmailThreadId,
         previewUrl: sentResult.previewUrl || undefined,
-        sentAt: now.toISOString(),
+        sentAt: now,
       },
       status: 'completed',
       attempts: sentResult.attempts || 1,
+      timestamp: now,
     })
 
-    await task.save()
-    void syncTaskToSupabase(task, req.user)
-    return res.json({ task })
+    const saved = await saveTask(task)
+    return res.json({ task: saved })
   } catch (error) {
     const status = error.status || 500
     return res.status(status).json({
@@ -407,10 +411,10 @@ router.post('/:id/approve-send', async (req, res) => {
 
 router.post('/:id/reject-draft', async (req, res) => {
   try {
-    if (!mongoose.isValidObjectId(req.params.id)) {
+    if (!isValidId(req.params.id)) {
       return res.status(400).json({ error: 'Invalid task ID.' })
     }
-    const task = await Task.findOne({ _id: req.params.id, userId: req.user._id })
+    const task = await findTaskById(req.params.id, req.user._id)
     if (!task) {
       return res.status(404).json({ error: 'Task not found.' })
     }
@@ -427,10 +431,10 @@ router.post('/:id/reject-draft', async (req, res) => {
       input: null,
       output: { approvalStatus: 'rejected' },
       status: 'completed',
+      timestamp: new Date().toISOString(),
     })
-    await task.save()
-    void syncTaskToSupabase(task, req.user)
-    return res.json({ task })
+    const saved = await saveTask(task)
+    return res.json({ task: saved })
   } catch (error) {
     return res.status(500).json({ error: 'Failed to reject draft.', message: error.message })
   }
@@ -438,18 +442,17 @@ router.post('/:id/reject-draft', async (req, res) => {
 
 router.delete('/:id', async (req, res) => {
   try {
-    if (!mongoose.isValidObjectId(req.params.id)) {
+    if (!isValidId(req.params.id)) {
       return res.status(400).json({ error: 'Invalid task ID.' })
     }
-    const task = await Task.findOne({ _id: req.params.id, userId: req.user._id })
+    const task = await findTaskById(req.params.id, req.user._id)
     if (!task) {
       return res.status(404).json({ error: 'Task not found.' })
     }
     if (task.status === 'running' || isTaskRunning(task._id)) {
       return res.status(409).json({ error: 'Stop the running task before deleting it.' })
     }
-    await task.deleteOne()
-    void deleteTaskFromSupabase(req.params.id)
+    await deleteTask(req.params.id, req.user._id)
     return res.json({ deletedId: req.params.id })
   } catch (error) {
     return res.status(500).json({ error: 'Failed to delete task.', message: error.message })
@@ -457,4 +460,3 @@ router.delete('/:id', async (req, res) => {
 })
 
 export default router
-

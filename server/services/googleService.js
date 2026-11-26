@@ -1,8 +1,8 @@
 import { google } from 'googleapis'
 import jwt from 'jsonwebtoken'
 import { env } from '../config/env.js'
-import { User } from '../models/User.js'
 import { withRetry } from '../utils/retry.js'
+import { findUserById, saveUser, updateUserGoogleTokens } from './dbStore.js'
 
 const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/gmail.compose',
@@ -74,7 +74,7 @@ export async function exchangeCodeAndSaveTokens(code, userId) {
     // Non-fatal: Gmail/Calendar tokens remain valid even if userinfo lookup fails
   }
 
-  const user = await User.findById(userId)
+  const user = await findUserById(userId)
   if (!user) {
     throw new GoogleIntegrationError('USER_NOT_FOUND', 'User account not found.', 404)
   }
@@ -87,8 +87,7 @@ export async function exchangeCodeAndSaveTokens(code, userId) {
     expiry_date: tokens.expiry_date || user.googleTokens?.expiry_date || 0,
     email: googleEmail || user.googleTokens?.email || '',
   }
-  await user.save()
-  return user
+  return saveUser(user)
 }
 
 export async function getAuthorizedClientForUser(user) {
@@ -118,16 +117,10 @@ export async function getAuthorizedClientForUser(user) {
 
   oauth2Client.on('tokens', async (newTokens) => {
     try {
-      await User.findByIdAndUpdate(user._id, {
-        $set: {
-          'googleTokens.access_token':
-            newTokens.access_token || user.googleTokens.access_token,
-          'googleTokens.expiry_date':
-            newTokens.expiry_date || user.googleTokens.expiry_date,
-          ...(newTokens.refresh_token
-            ? { 'googleTokens.refresh_token': newTokens.refresh_token }
-            : {}),
-        },
+      await updateUserGoogleTokens(user._id, {
+        access_token: newTokens.access_token || user.googleTokens.access_token,
+        expiry_date: newTokens.expiry_date || user.googleTokens.expiry_date,
+        ...(newTokens.refresh_token ? { refresh_token: newTokens.refresh_token } : {}),
       })
     } catch {
       // Non-fatal persistence failure during token refresh

@@ -1,18 +1,23 @@
 import { env } from './config/env.js'
-import { connectDB, disconnectDB } from './config/db.js'
 import { createApp } from './app.js'
+import { checkDatabaseHealth } from './services/dbStore.js'
+
+const app = createApp()
 
 async function startServer() {
-  await connectDB(env.MONGODB_URI)
-  const app = createApp()
+  const dbStatus = await checkDatabaseHealth()
+  if (!dbStatus.connected) {
+    console.warn('Supabase Postgres connection check failed:', dbStatus.error || 'Not configured')
+  } else {
+    console.log(`Connected to Supabase Postgres (${env.SUPABASE_URL})`)
+  }
 
   const server = app.listen(env.PORT, () => {
     console.log(`MailPilot AI server listening on http://localhost:${env.PORT}`)
   })
 
-  const shutdown = async () => {
-    server.close(async () => {
-      await disconnectDB()
+  const shutdown = () => {
+    server.close(() => {
       process.exit(0)
     })
   }
@@ -21,7 +26,11 @@ async function startServer() {
   process.on('SIGTERM', shutdown)
 }
 
-startServer().catch((err) => {
-  console.error('Failed to start MailPilot AI server:', err)
-  process.exit(1)
-})
+if (!process.env.VERCEL) {
+  startServer().catch((err) => {
+    console.error('Failed to start MailPilot AI server:', err)
+    process.exit(1)
+  })
+}
+
+export default app

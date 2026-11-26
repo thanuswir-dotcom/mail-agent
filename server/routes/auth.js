@@ -1,14 +1,14 @@
 import express from 'express'
 import bcrypt from 'bcryptjs'
 import { z } from 'zod'
-import { User } from '../models/User.js'
-import { requireAuth, signToken } from '../middleware/auth.js'
 import { env } from '../config/env.js'
+import { requireAuth, signToken } from '../middleware/auth.js'
 import {
-  backfillUserToSupabase,
+  createUser,
+  findUserByEmail,
   isSupabaseConfigured,
-  syncUserToSupabase,
-} from '../services/supabaseService.js'
+  toSafeProfile,
+} from '../services/dbStore.js'
 
 const router = express.Router()
 
@@ -37,21 +37,23 @@ router.post('/register', async (req, res) => {
     }
 
     const { name, email, password } = parsed.data
-    const existing = await User.findOne({ email })
+    const existing = await findUserByEmail(email)
     if (existing) {
       return res.status(409).json({ error: 'An account with this email already exists.' })
     }
 
     const passwordHash = await bcrypt.hash(password, 10)
-    const user = await User.create({ name, email, passwordHash })
-    const token = signToken(user._id.toString())
-    void syncUserToSupabase(user)
+    const user = await createUser({ name, email, passwordHash })
+    const token = signToken(String(user._id))
 
     return res.status(201).json({
       token,
-      user: user.toSafeProfile(),
+      user: toSafeProfile(user),
     })
   } catch (error) {
+    if (error?.code === '23505') {
+      return res.status(409).json({ error: 'An account with this email already exists.' })
+    }
     return res.status(500).json({ error: 'Failed to register account.', message: error.message })
   }
 })
@@ -66,8 +68,8 @@ router.post('/login', async (req, res) => {
     }
 
     const { email, password } = parsed.data
-    const user = await User.findOne({ email })
-    if (!user) {
+    const user = await findUserByEmail(email)
+    if (!user || !user.passwordHash) {
       return res.status(401).json({ error: 'Invalid email or password.' })
     }
 
@@ -76,11 +78,10 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password.' })
     }
 
-    const token = signToken(user._id.toString())
-    void backfillUserToSupabase(user)
+    const token = signToken(String(user._id))
     return res.json({
       token,
-      user: user.toSafeProfile(),
+      user: toSafeProfile(user),
     })
   } catch (error) {
     return res.status(500).json({ error: 'Failed to sign in.', message: error.message })
@@ -89,7 +90,7 @@ router.post('/login', async (req, res) => {
 
 router.get('/me', requireAuth, async (req, res) => {
   return res.json({
-    user: req.user.toSafeProfile(),
+    user: toSafeProfile(req.user),
     integrations: {
       geminiConfigured: Boolean(env.GEMINI_API_KEY),
       geminiModel: env.GEMINI_MODEL,
@@ -101,4 +102,3 @@ router.get('/me', requireAuth, async (req, res) => {
 })
 
 export default router
-

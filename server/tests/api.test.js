@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict'
 import { after, before, describe, it } from 'node:test'
 import http from 'node:http'
-import { MongoMemoryServer } from 'mongodb-memory-server'
-import { connectDB, disconnectDB } from '../config/db.js'
 import { createApp } from '../app.js'
-import { Task } from '../models/Task.js'
-import { User } from '../models/User.js'
 import { executeTaskAgent, stopTaskRun } from '../services/agentRunner.js'
+import {
+  createTask,
+  findUserById,
+  resetMemoryStore,
+} from '../services/dbStore.js'
 import { invokeValidatedTool } from '../services/toolRegistry.js'
 
-let mongod
 let server
 let baseUrl
 
@@ -28,8 +28,7 @@ async function request(path, { method = 'GET', token = '', body } = {}) {
 
 before(async () => {
   process.env.NODE_ENV = 'test'
-  mongod = await MongoMemoryServer.create()
-  await connectDB(mongod.getUri())
+  resetMemoryStore()
   const app = createApp()
   server = http.createServer(app)
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
@@ -40,10 +39,6 @@ before(async () => {
 after(async () => {
   if (server) {
     await new Promise((resolve) => server.close(resolve))
-  }
-  await disconnectDB()
-  if (mongod) {
-    await mongod.stop()
   }
 })
 
@@ -64,7 +59,7 @@ describe('MailPilot AI Backend Integration & Agent Tests', () => {
     assert.ok(reg.data.token)
     assert.equal(reg.data.user.email, 'pilot@example.com')
 
-    const dbUser = await User.findById(reg.data.user.id)
+    const dbUser = await findUserById(reg.data.user.id)
     assert.ok(dbUser.passwordHash.startsWith('$2'))
     assert.notEqual(dbUser.passwordHash, 'StrongPassword123')
 
@@ -84,7 +79,7 @@ describe('MailPilot AI Backend Integration & Agent Tests', () => {
     assert.equal(me.data.user.email, 'pilot@example.com')
   })
 
-  it('creates, searches, seeds, and updates contacts in MongoDB', async () => {
+  it('creates, searches, seeds, and updates contacts', async () => {
     const created = await request('/api/contacts', {
       method: 'POST',
       token,
@@ -109,8 +104,8 @@ describe('MailPilot AI Backend Integration & Agent Tests', () => {
   })
 
   it('validates tool inputs and outputs with Zod', async () => {
-    const user = await User.findById(userId)
-    const task = await Task.create({ userId, goal: 'Test Zod validation', status: 'pending' })
+    const user = await findUserById(userId)
+    const task = await createTask({ userId, goal: 'Test Zod validation', status: 'pending' })
 
     await assert.rejects(
       () =>
@@ -129,7 +124,7 @@ describe('MailPilot AI Backend Integration & Agent Tests', () => {
     )
     assert.equal(contactsRes.validatedOutput.totalFound >= 1, true)
 
-    const unofficialTask = await Task.create({
+    const unofficialTask = await createTask({
       userId,
       goal: 'Send a friendly hi letter to my friend Bhuvana',
       status: 'pending',
@@ -152,7 +147,7 @@ describe('MailPilot AI Backend Integration & Agent Tests', () => {
   })
 
   it('runs tool-calling agent loop, records trace, handles calendar fallback, and never auto-sends', async () => {
-    const task = await Task.create({
+    const task = await createTask({
       userId,
       goal: 'Find Sarah from design, check calendar, and draft a 30-min sync email',
       status: 'pending',
@@ -258,7 +253,6 @@ describe('MailPilot AI Backend Integration & Agent Tests', () => {
     assert.ok(completed.trace.some((t) => t.type === 'fallback' && t.toolName === 'check_calendar_availability'))
     assert.ok(completed.trace.some((t) => t.toolName === 'create_email_draft' && t.status === 'completed'))
 
-    // Explicit approval guard: rejecting send without confirmed: true
     const badApprove = await request(`/api/tasks/${task._id}/approve-send`, {
       method: 'POST',
       token,
@@ -268,7 +262,7 @@ describe('MailPilot AI Backend Integration & Agent Tests', () => {
   })
 
   it('supports editing task plan and stopping a running agent cleanly', async () => {
-    const task = await Task.create({
+    const task = await createTask({
       userId,
       goal: 'Stoppable task test',
       status: 'pending',
