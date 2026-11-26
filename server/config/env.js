@@ -61,7 +61,7 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(16).default('dev-insecure-jwt-secret-change-me'),
   JWT_EXPIRES_IN: z.string().default('7d'),
   GEMINI_API_KEY: z.string().optional().default('').transform(cleanSecret),
-  GEMINI_MODEL: z.string().default('gemini-3.8-flash'),
+  GEMINI_MODEL: z.string().default('gemini-3.6-flash'),
   GOOGLE_CLIENT_ID: z.string().optional().default('').transform(cleanSecret),
   GOOGLE_CLIENT_SECRET: z.string().optional().default('').transform(cleanSecret),
   GOOGLE_REDIRECT_URI: z.string().optional().default(resolveDefaultGoogleRedirectUri),

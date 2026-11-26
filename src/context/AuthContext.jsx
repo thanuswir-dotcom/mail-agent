@@ -6,7 +6,7 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [integrations, setIntegrations] = useState({
     geminiConfigured: false,
-    geminiModel: 'gemini-3.8-flash',
+    geminiModel: 'gemini-3.6-flash',
     googleOAuthConfigured: false,
     supabaseConfigured: false,
   })

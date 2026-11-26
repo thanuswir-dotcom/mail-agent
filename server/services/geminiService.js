@@ -1,7 +1,7 @@
 import { GoogleGenAI } from '@google/genai'
 import { z } from 'zod'
 import { env } from '../config/env.js'
-import { withRetry } from '../utils/retry.js'
+import { AbortError, withRetry } from '../utils/retry.js'
 
 const generatedPlanSchema = z.object({
   steps: z
@@ -61,15 +61,17 @@ function normalizeGeminiError(error) {
 }
 
 const FALLBACK_MODELS = [
-  'gemini-3.8-flash',
+  'gemini-3.6-flash',
   'gemini-3.5-flash',
+  'gemini-3.5-flash-lite',
+  'gemini-3.1-flash-lite',
+  'gemini-3.8-flash',
   'gemini-3.7-flash',
-  'gemini-2.5-flash',
-  'gemini-flash-latest',
 ]
 
 function getModelCandidates() {
-  return [...new Set([env.GEMINI_MODEL, ...FALLBACK_MODELS].filter(Boolean))]
+  const ordered = [env.GEMINI_MODEL, ...FALLBACK_MODELS].filter(Boolean)
+  return [...new Set(ordered)]
 }
 
 function shouldFallbackModel(error) {
@@ -82,6 +84,8 @@ function shouldFallbackModel(error) {
     msg.includes('404') ||
     msg.includes('unavailable') ||
     msg.includes('high demand') ||
+    msg.includes('deadline expired') ||
+    msg.includes('timeout') ||
     msg.includes('not_found') ||
     msg.includes('no longer available')
   )
@@ -94,26 +98,45 @@ async function generateWithModelFallback(ai, buildRequest, { signal, onRetry }) 
 
   for (let i = 0; i < candidates.length; i += 1) {
     const model = candidates[i]
+    if (signal?.aborted) {
+      throw new AbortError()
+    }
+
+    const timeoutSignal = AbortSignal.timeout(15000)
+    const attemptSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal
+
     try {
       const { value, attempts } = await withRetry(
-        async () => ai.models.generateContent(buildRequest(model)),
+        async () => ai.models.generateContent(buildRequest(model, attemptSignal)),
         {
-          maxAttempts: i === 0 ? 2 : 1,
-          signal,
+          maxAttempts: 1,
+          signal: attemptSignal,
           onRetry,
         }
       )
       return { response: value, attempts: totalAttempts + attempts, modelUsed: model }
     } catch (error) {
-      if (error?.isAbort || error?.name === 'AbortError' || signal?.aborted) {
+      if (signal?.aborted) {
+        throw error
+      }
+      const timedOut = timeoutSignal.aborted
+      if (!timedOut && (error?.isAbort || error?.name === 'AbortError')) {
         throw error
       }
       totalAttempts += error.attempts || 1
-      lastError = error
-      if (i < candidates.length - 1 && shouldFallbackModel(error)) {
+      lastError = timedOut ? new Error(`Model ${model} timed out`) : error
+      if (i < candidates.length - 1 && (timedOut || shouldFallbackModel(error))) {
+        if (onRetry) {
+          await onRetry({
+            attempt: i + 1,
+            maxAttempts: candidates.length,
+            delayMs: 0,
+            error: lastError,
+          })
+        }
         continue
       }
-      throw error
+      throw lastError
     }
   }
 
@@ -154,7 +177,7 @@ export async function generateTaskPlan({
   try {
     const { response, attempts } = await generateWithModelFallback(
       ai,
-      (model) => ({
+      (model, attemptSignal) => ({
         model,
         contents: prompt,
         config: {
@@ -190,7 +213,7 @@ export async function generateTaskPlan({
             required: ['steps'],
           },
           temperature: 0.2,
-          abortSignal: signal,
+          abortSignal: attemptSignal,
         },
       }),
       { signal }
@@ -225,14 +248,14 @@ export async function runAgentTurn({
   try {
     const { response, attempts } = await generateWithModelFallback(
       ai,
-      (model) => ({
+      (model, attemptSignal) => ({
         model,
         contents,
         config: {
           systemInstruction,
           tools: [{ functionDeclarations }],
           temperature: 0.2,
-          abortSignal: signal,
+          abortSignal: attemptSignal,
         },
       }),
       { signal, onRetry }
