@@ -14,12 +14,13 @@ import {
 } from '../services/dbStore.js'
 import { deliverApprovedEmail } from '../services/emailDeliveryService.js'
 import { generateTaskPlan } from '../services/geminiService.js'
-import { enhanceUnofficialEmail } from '../services/toolRegistry.js'
+import { enhanceUnofficialEmail, sanitizeOfficialEmail } from '../services/toolRegistry.js'
 
 const router = express.Router()
 
 const createPlanSchema = z.object({
   goal: z.string().trim().min(5, 'Please describe your email goal (at least 5 characters)').max(2000),
+  toneMode: z.enum(['auto', 'official', 'unofficial']).optional().default('auto'),
 })
 
 const updatePlanSchema = z.object({
@@ -120,6 +121,7 @@ router.post('/plan', async (req, res) => {
     const task = await createTask({
       userId: req.user._id,
       goal: parsed.data.goal,
+      toneMode: parsed.data.toneMode,
       status: 'pending',
       plan: steps,
       trace: [
@@ -128,7 +130,7 @@ router.post('/plan', async (req, res) => {
           type: 'plan',
           title: 'Generated editable task plan with Gemini',
           toolName: 'gemini_planner',
-          input: { goal: parsed.data.goal },
+          input: { goal: parsed.data.goal, toneMode: parsed.data.toneMode },
           output: { steps },
           status: 'completed',
           attempts,
@@ -291,6 +293,10 @@ router.patch('/:id/draft', async (req, res) => {
       const enhanced = enhanceUnofficialEmail({ subject: nextSubject, body: nextBody })
       nextSubject = enhanced.subject
       nextBody = enhanced.body
+    } else if (draftFields.recipientType === 'official') {
+      const sanitized = sanitizeOfficialEmail({ subject: nextSubject, body: nextBody })
+      nextSubject = sanitized.subject
+      nextBody = sanitized.body
     }
 
     task.emailDraft = {
@@ -345,6 +351,10 @@ router.post('/:id/approve-send', async (req, res) => {
       const enhanced = enhanceUnofficialEmail({ subject: finalSubject, body: finalBody })
       finalSubject = enhanced.subject
       finalBody = enhanced.body
+    } else {
+      const sanitized = sanitizeOfficialEmail({ subject: finalSubject, body: finalBody })
+      finalSubject = sanitized.subject
+      finalBody = sanitized.body
     }
 
     const sentResult = await deliverApprovedEmail(req.user, {

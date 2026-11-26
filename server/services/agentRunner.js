@@ -95,6 +95,14 @@ export async function executeTaskAgent({
       .map((s, idx) => `${idx + 1}. [${s.toolHint || 'reasoning'}] ${s.title}${s.description ? ` — ${s.description}` : ''}`)
       .join('\n')
 
+    const tonePreference = task.emailDraft?.toneMode || 'auto'
+    const toneInstruction =
+      tonePreference === 'official'
+        ? 'USER TONE LOCK = OFFICIAL: Write a polished, formal executive email/letter with ZERO emojis anywhere in the subject or body, and pass `recipientType: "official"`.'
+        : tonePreference === 'unofficial'
+          ? 'USER TONE LOCK = UNOFFICIAL: Write a warm, friendly, conversational email/letter with expressive emojis in the subject and body, and pass `recipientType: "unofficial"`.'
+          : 'Auto-detect tone: determine `official` (strictly professional prose with ZERO emojis) vs `unofficial` (warm, friendly with expressive emojis) from contact relationshipType or goal wording.'
+
     const systemInstruction = [
       'You are MailPilot AI, a tool-using smart email agent.',
       `Current UTC datetime: ${nowIso}`,
@@ -104,8 +112,8 @@ export async function executeTaskAgent({
       '1. Follow the user-approved task plan below step by step.',
       '2. Use `find_contacts` to look up recipients whenever a name, role, or company is mentioned.',
       '3. Use `check_calendar_availability` whenever scheduling, meetings, or availability are involved.',
-      '4. Determine whether the recipient is `official` (work/client/boss/formal) or `unofficial` (friend/family/casual/personal, or marked relationshipType="unofficial" in Contacts).',
-      '5. For `unofficial` recipients, write a warm, friendly email or letter with extra expressive emojis throughout the subject and message, and pass `recipientType: "unofficial"` to `create_email_draft`.',
+      `4. ${toneInstruction}`,
+      '5. NEVER include any emojis in `official` emails (subject or body). Only `unofficial` drafts should include emojis.',
       '6. Use `create_email_draft` to compose the email for explicit user approval. NEVER claim an email has been sent.',
       '7. If a tool returns a fallback or empty result, adapt transparently and explain it in your final summary.',
       '8. When finished, provide a concise summary of what tools ran and what draft is ready for approval.',
@@ -116,7 +124,7 @@ export async function executeTaskAgent({
         role: 'user',
         parts: [
           {
-            text: `Goal: ${task.goal}\n\nEditable Task Plan:\n${planText}`,
+            text: `Goal: ${task.goal}\nRequested Tone Mode: ${tonePreference}\n\nEditable Task Plan:\n${planText}`,
           },
         ],
       },

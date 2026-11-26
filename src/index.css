@@ -1,108 +1,121 @@
 @import "tailwindcss";
 
-:root {
-  color-scheme: light dark;
-  --mp-bg-light: #f8fafc;
-  --mp-bg-dark: #0b1120;
-  --mp-surface-light: #ffffff;
-  --mp-surface-dark: #111827;
-  --mp-border-light: #cbd5e1;
-  --mp-border-dark: #334155;
-  --mp-text-light: #0f172a;
-  --mp-text-dark: #f1f5f9;
-  --mp-muted-light: #475569;
-  --mp-muted-dark: #94a3b8;
-  --mp-accent-light: #2563eb;
-  --mp-accent-dark: #60a5fa;
+@custom-variant dark (&:where(.dark, .dark *));
 
-  --mp-bg: var(--mp-bg-light);
-  --mp-surface: var(--mp-surface-light);
-  --mp-border: var(--mp-border-light);
-  --mp-text: var(--mp-text-light);
-  --mp-muted: var(--mp-muted-light);
-  --mp-accent: var(--mp-accent-light);
-
-  @media (prefers-color-scheme: dark) {
-    --mp-bg: var(--mp-bg-dark);
-    --mp-surface: var(--mp-surface-dark);
-    --mp-border: var(--mp-border-dark);
-    --mp-text: var(--mp-text-dark);
-    --mp-muted: var(--mp-muted-dark);
-    --mp-accent: var(--mp-accent-dark);
-  }
-
-  @supports (color: light-dark(white, black)) {
-    --mp-bg: light-dark(var(--mp-bg-light), var(--mp-bg-dark));
-    --mp-surface: light-dark(var(--mp-surface-light), var(--mp-surface-dark));
-    --mp-border: light-dark(var(--mp-border-light), var(--mp-border-dark));
-    --mp-text: light-dark(var(--mp-text-light), var(--mp-text-dark));
-    --mp-muted: light-dark(var(--mp-muted-light), var(--mp-muted-dark));
-    --mp-accent: light-dark(var(--mp-accent-light), var(--mp-accent-dark));
-  }
-
-  accent-color: var(--mp-accent);
+:root,
+html.light {
+  color-scheme: light;
+  --bg: #f4f7fb;
+  --bg-subtle: #eaf0f8;
+  --card: #ffffff;
+  --card-elevated: #f8fafc;
+  --text: #0f172a;
+  --muted: #64748b;
+  --border: #e2e8f0;
+  --accent: #2563eb;
+  --accent-text: #ffffff;
+  --accent-soft: #eff6ff;
+  --success: #059669;
+  --warning: #d97706;
+  --danger: #e11d48;
+  --ring: rgba(37, 99, 235, 0.25);
 }
 
-html,
+html.dark {
+  color-scheme: dark;
+  --bg: #070b14;
+  --bg-subtle: #0f172a;
+  --card: #0f172a;
+  --card-elevated: #162033;
+  --text: #f1f5f9;
+  --muted: #94a3b8;
+  --border: #1e293b;
+  --accent: #3b82f6;
+  --accent-text: #ffffff;
+  --accent-soft: rgba(59, 130, 246, 0.16);
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #f43f5e;
+  --ring: rgba(59, 130, 246, 0.35);
+}
+
+* {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
-  min-height: 100%;
-  background-color: var(--mp-bg);
-  color: var(--mp-text);
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  min-height: 100vh;
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(at 0% 0%, color-mix(in srgb, var(--accent) 9%, transparent) 0px, transparent 48%),
+    radial-gradient(at 100% 0%, color-mix(in srgb, var(--success) 7%, transparent) 0px, transparent 44%);
+  color: var(--text);
+  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
-/* Native modal scroll containment per modern web guidance */
 dialog:modal {
-  overscroll-behavior: contain;
-  margin: auto;
-  border: 1px solid var(--mp-border);
-  border-radius: 1rem;
-  background-color: var(--mp-surface);
-  color: var(--mp-text);
-  padding: 0;
-  max-width: min(92vw, 38rem);
+  max-width: min(720px, calc(100vw - 2rem));
   width: 100%;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35);
+  border-radius: 1.25rem;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  padding: 0;
+  box-shadow: 0 25px 50px -12px rgba(2, 6, 23, 0.45);
 }
 
 dialog::backdrop {
+  background: rgba(2, 6, 23, 0.65);
+  backdrop-filter: blur(5px);
+}
+
+.mp-input {
+  width: 100%;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border);
+  background: var(--card-elevated);
+  color: var(--text);
+  padding: 0.65rem 0.9rem;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+.mp-input::placeholder {
+  color: var(--muted);
+  opacity: 0.85;
+}
+
+.mp-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--ring);
+  background: var(--card);
+}
+
+.mp-card {
+  border-radius: 1.125rem;
+  border: 1px solid var(--border);
+  background: var(--card);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04), 0 8px 24px -12px rgba(15, 23, 42, 0.08);
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.dark .mp-card {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 12px 30px -12px rgba(0, 0, 0, 0.5);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
   overflow: hidden;
-  overscroll-behavior: contain;
-  background: rgba(15, 23, 42, 0.65);
-  backdrop-filter: blur(4px);
-}
-
-/* Form controls accessible typography & focus */
-input:not([type="checkbox"]):not([type="radio"]),
-textarea,
-select {
-  font: inherit;
-  font-size: max(1rem, 1em);
-}
-
-:is(input, textarea, select, button, a):focus-visible {
-  outline: 3px solid var(--mp-accent);
-  outline-offset: 2px;
-}
-
-/* Deferred validation styling after user interaction */
-.mp-input:is(:user-invalid, .user-invalid-fallback) {
-  border-color: #dc2626;
-}
-
-.mp-input:is(:user-valid, .user-valid-fallback) {
-  border-color: #16a34a;
-}
-
-.visually-hidden:where(:not(:focus-within, :active)) {
-  position: absolute !important;
-  clip-path: inset(50%) !important;
-  overflow: hidden !important;
-  width: 1px !important;
-  height: 1px !important;
-  margin: -1px !important;
-  padding: 0 !important;
-  border: 0 !important;
-  white-space: nowrap !important;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }

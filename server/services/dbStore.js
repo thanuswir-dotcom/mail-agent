@@ -153,6 +153,7 @@ function defaultEmailDraft() {
     approvalStatus: 'none',
     approvedAt: null,
     sentAt: null,
+    toneMode: 'auto',
     error: '',
   }
 }
@@ -557,9 +558,10 @@ export async function findTaskById(id, userId) {
   return mapTaskFromRow(data)
 }
 
-export async function createTask({ userId, goal, status = 'pending', plan = [], trace = [] }) {
+export async function createTask({ userId, goal, status = 'pending', plan = [], trace = [], toneMode = 'auto' }) {
   const now = new Date().toISOString()
   const id = crypto.randomUUID()
+  const normalizedTone = toneMode === 'official' || toneMode === 'unofficial' ? toneMode : 'auto'
   const task = {
     _id: id,
     userId: String(userId),
@@ -567,7 +569,11 @@ export async function createTask({ userId, goal, status = 'pending', plan = [], 
     status,
     plan,
     trace,
-    emailDraft: defaultEmailDraft(),
+    emailDraft: {
+      ...defaultEmailDraft(),
+      toneMode: normalizedTone,
+      recipientType: normalizedTone === 'unofficial' ? 'unofficial' : 'official',
+    },
     finalSummary: '',
     error: '',
     stoppedByUser: false,

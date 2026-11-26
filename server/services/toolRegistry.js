@@ -3,6 +3,7 @@ import { findContactByEmail, listContacts, saveTask } from './dbStore.js'
 import * as googleService from './googleService.js'
 
 const EMOJI_REGEX = /\p{Extended_Pictographic}/gu
+const STRIP_EMOJI_REGEX = /(?:\p{Extended_Pictographic}|\uFE0F|\u200D|\u20E3)/gu
 
 const UNOFFICIAL_GOAL_CUE =
   /\b(friend|friends|bestie|buddy|pal|bro|sis|brother|sister|cousin|mom|dad|family|unofficial|casual|informal|personal|hangout|party|birthday)\b/i
@@ -10,6 +11,26 @@ const UNOFFICIAL_GOAL_CUE =
 export function countEmojis(text = '') {
   const matches = String(text).match(EMOJI_REGEX)
   return matches ? matches.length : 0
+}
+
+/**
+ * Removes all emojis and variation selectors while keeping line breaks intact
+ * so official emails stay strictly professional and emoji-free.
+ */
+export function stripEmojis(text = '') {
+  return String(text || '')
+    .replace(STRIP_EMOJI_REGEX, '')
+    .split(/\r?\n/)
+    .map((line) => line.replace(/[ \t]{2,}/g, ' ').trimEnd())
+    .join('\n')
+    .trim()
+}
+
+export function sanitizeOfficialEmail({ subject = '', body = '' }) {
+  return {
+    subject: stripEmojis(subject).replace(/\s+/g, ' ').trim(),
+    body: stripEmojis(body),
+  }
 }
 
 /**
@@ -303,9 +324,12 @@ export const TOOL_DEFINITIONS = [
     inputSchema: createEmailDraftInputSchema,
     outputSchema: createEmailDraftOutputSchema,
     async execute(input, context) {
-      // Determine official vs unofficial from contact record or goal wording
+      // Determine official vs unofficial: explicit user toneMode takes precedence
+      const lockedToneMode = context.task?.emailDraft?.toneMode || 'auto'
       let resolvedType = input.recipientType || 'official'
-      if (resolvedType === 'official') {
+      if (lockedToneMode === 'official' || lockedToneMode === 'unofficial') {
+        resolvedType = lockedToneMode
+      } else if (resolvedType === 'official') {
         const contact = await findContactByEmail(context.user._id, input.recipientEmail)
         if (
           contact?.relationshipType === 'unofficial' ||
@@ -327,6 +351,13 @@ export const TOOL_DEFINITIONS = [
         finalSubject = enhanced.subject
         finalBody = enhanced.body
         emojisEnhanced = enhanced.emojisEnhanced
+      } else {
+        const sanitized = sanitizeOfficialEmail({
+          subject: finalSubject,
+          body: finalBody,
+        })
+        finalSubject = sanitized.subject
+        finalBody = sanitized.body
       }
 
       const draftFn =
@@ -372,6 +403,7 @@ export const TOOL_DEFINITIONS = [
         recipientName: input.recipientName || '',
         recipientEmail: input.recipientEmail,
         recipientType: resolvedType,
+        toneMode: lockedToneMode,
         cc: input.cc || [],
         subject: finalSubject,
         body: finalBody,

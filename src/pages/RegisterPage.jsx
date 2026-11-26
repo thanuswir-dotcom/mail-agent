@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
-import { Eye, EyeOff, Mail } from 'lucide-react'
+import { Eye, EyeOff, Mail, Moon, Sun } from 'lucide-react'
 import { extractApiError } from '../api/client'
 import { useAuth } from '../context/useAuth'
+import { useTheme } from '../context/useTheme'
 
 export function RegisterPage() {
   const { user, register } = useAuth()
+  const { isDark, toggleTheme } = useTheme()
   const navigate = useNavigate()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -33,8 +35,17 @@ export function RegisterPage() {
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center p-4">
-      <div className="w-full max-w-md rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-7 shadow-lg">
+    <main className="min-h-screen flex items-center justify-center p-4 relative">
+      <button
+        type="button"
+        onClick={toggleTheme}
+        aria-label={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+        className="absolute top-4 right-4 inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-xs font-semibold shadow-sm hover:border-blue-400 transition cursor-pointer"
+      >
+        {isDark ? <Sun className="w-3.5 h-3.5 text-amber-400" /> : <Moon className="w-3.5 h-3.5 text-indigo-600" />}
+        <span>{isDark ? 'Light Mode' : 'Dark Mode'}</span>
+      </button>
+      <div className="w-full max-w-md mp-card p-7">
         <div className="flex items-center gap-3 mb-6">
           <span className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center">
             <Mail className="w-5 h-5" aria-hidden="true" />

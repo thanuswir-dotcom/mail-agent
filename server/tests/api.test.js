@@ -8,7 +8,7 @@ import {
   findUserById,
   resetMemoryStore,
 } from '../services/dbStore.js'
-import { invokeValidatedTool } from '../services/toolRegistry.js'
+import { countEmojis, invokeValidatedTool } from '../services/toolRegistry.js'
 
 let server
 let baseUrl
@@ -317,5 +317,33 @@ describe('MailPilot AI Backend Integration & Agent Tests', () => {
     const result = await runPromise
     assert.equal(result.status, 'failed')
     assert.equal(result.stoppedByUser, true)
+  })
+
+  it('enforces zero emojis on official drafts even when tone is overridden or saved with emojis', async () => {
+    const task = await createTask({
+      userId,
+      goal: 'Write a birthday invite to my friend bob@example.com',
+      toneMode: 'official',
+      status: 'pending',
+      plan: [{ id: 'step-1', title: 'Draft email', toolHint: 'create_email_draft', status: 'pending' }],
+    })
+
+    const patched = await request(`/api/tasks/${task._id}/draft`, {
+      method: 'PATCH',
+      token,
+      body: {
+        recipientName: 'Bob Smith',
+        recipientEmail: 'bob@example.com',
+        recipientType: 'official',
+        enhanceEmojis: true,
+        subject: 'Quarterly Strategy Review 🚀✨',
+        body: 'Dear Bob 😊,\n\nPlease find the Q4 summary attached 🙌.\n\nRegards,\nTest Pilot',
+      },
+    })
+    assert.equal(patched.status, 200)
+    assert.equal(patched.data.task.emailDraft.recipientType, 'official')
+    assert.equal(countEmojis(patched.data.task.emailDraft.subject), 0)
+    assert.equal(countEmojis(patched.data.task.emailDraft.body), 0)
+    assert.equal(patched.data.task.emailDraft.subject, 'Quarterly Strategy Review')
   })
 })

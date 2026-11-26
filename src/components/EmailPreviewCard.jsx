@@ -1,22 +1,43 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  Briefcase,
   CheckCircle2,
   ExternalLink,
   MailCheck,
   Save,
   Send,
   ShieldAlert,
+  ShieldCheck,
   Sparkles,
   XCircle,
 } from 'lucide-react'
 
 import { extractApiError } from '../api/client'
+import { useVoiceAssistant } from '../hooks/useVoiceAssistant'
+import { VoiceMicButton, VoiceSpeakButton } from './VoiceControls'
 
 const EMOJI_REGEX = /\p{Extended_Pictographic}/gu
+const STRIP_EMOJI_REGEX = /(?:\p{Extended_Pictographic}|\uFE0F|\u200D|\u20E3)/gu
 
 function countEmojis(text = '') {
   const m = String(text).match(EMOJI_REGEX)
   return m ? m.length : 0
+}
+
+function stripEmojis(text = '') {
+  return String(text || '')
+    .replace(STRIP_EMOJI_REGEX, '')
+    .split(/\r?\n/)
+    .map((line) => line.replace(/[ \t]{2,}/g, ' ').trimEnd())
+    .join('\n')
+    .trim()
+}
+
+function sanitizeOfficialDraft({ subject = '', body = '' }) {
+  return {
+    subject: stripEmojis(subject).replace(/\s+/g, ' ').trim(),
+    body: stripEmojis(body),
+  }
 }
 
 function addWarmEmojis({ subject = '', body = '' }) {
@@ -82,6 +103,23 @@ export function EmailPreviewCard({
   const [dialogOpen, setDialogOpen] = useState(false)
   const confirmDialogRef = useRef(null)
 
+  const {
+    speechSupported,
+    isListening,
+    isSpeaking,
+    interimTranscript,
+    voiceError,
+    startListening,
+    speak,
+    stopSpeaking,
+  } = useVoiceAssistant({
+    onTranscript: (spoken) => {
+      const addition = recipientType === 'official' ? stripEmojis(spoken) : spoken
+      if (!addition) return
+      setBody((prev) => (prev.trim() ? `${prev.trimEnd()}\n${addition}` : addition))
+    },
+  })
+
   useEffect(() => {
     const dialog = confirmDialogRef.current
     if (!dialog) return
@@ -116,23 +154,47 @@ export function EmailPreviewCard({
   const handleRecipientTypeChange = (nextType) => {
     setRecipientType(nextType)
     if (nextType === 'unofficial') {
-      const enriched = addWarmEmojis({ subject, body })
+      const cleaned = sanitizeOfficialDraft({ subject, body })
+      const enriched = addWarmEmojis(cleaned)
       setSubject(enriched.subject)
       setBody(enriched.body)
+    } else {
+      const cleaned = sanitizeOfficialDraft({ subject, body })
+      setSubject(cleaned.subject)
+      setBody(cleaned.body)
     }
   }
 
   const handleBoostEmojis = () => {
     setRecipientType('unofficial')
-    const enriched = addWarmEmojis({ subject, body })
+    const enriched = addWarmEmojis(sanitizeOfficialDraft({ subject, body }))
     setSubject(enriched.subject)
     setBody(enriched.body)
+  }
+
+  const handleCleanOfficialEmojis = () => {
+    setRecipientType('official')
+    const cleaned = sanitizeOfficialDraft({ subject, body })
+    setSubject(cleaned.subject)
+    setBody(cleaned.body)
+  }
+
+  const getOutboundFields = () => {
+    if (recipientType === 'official') {
+      return sanitizeOfficialDraft({ subject, body })
+    }
+    return { subject: subject.trim(), body: body.trim() }
   }
 
   const handleSave = async (e) => {
     e.preventDefault()
     setActionError('')
     setBusyAction('save')
+    const outbound = getOutboundFields()
+    if (recipientType === 'official') {
+      setSubject(outbound.subject)
+      setBody(outbound.body)
+    }
     try {
       await onSaveDraft({
         recipientName: recipientName.trim(),
@@ -140,8 +202,8 @@ export function EmailPreviewCard({
         recipientType,
         enhanceEmojis: recipientType === 'unofficial',
         cc: parseCcList(),
-        subject: subject.trim(),
-        body: body.trim(),
+        subject: outbound.subject,
+        body: outbound.body,
       })
     } catch (err) {
       setActionError(extractApiError(err, 'Failed to save draft edits.'))
@@ -162,6 +224,11 @@ export function EmailPreviewCard({
   const handleConfirmSend = async () => {
     setBusyAction('send')
     setActionError('')
+    const outbound = getOutboundFields()
+    if (recipientType === 'official') {
+      setSubject(outbound.subject)
+      setBody(outbound.body)
+    }
     try {
       await onApproveAndSend({
         confirmed: true,
@@ -170,8 +237,8 @@ export function EmailPreviewCard({
         recipientEmail: recipientEmail.trim(),
         recipientType,
         cc: parseCcList(),
-        subject: subject.trim(),
-        body: body.trim(),
+        subject: outbound.subject,
+        body: outbound.body,
       })
       setDialogOpen(false)
     } catch (err) {
@@ -194,23 +261,43 @@ export function EmailPreviewCard({
     }
   }
 
+  const officialPreview = sanitizeOfficialDraft({ subject, body })
+  const unofficialPreview = addWarmEmojis(officialPreview)
+  const officialEmojiCount = countEmojis(subject) + countEmojis(body)
+
   return (
     <section
       aria-labelledby="email-preview-heading"
-      className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-sm"
+      className="mp-card p-5 sm:p-6"
     >
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div>
-          <h2 id="email-preview-heading" className="text-base font-semibold">
+          <h2 id="email-preview-heading" className="text-base font-bold tracking-tight">
             Email Preview &amp; Explicit Approval
           </h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Review the message before sending. Unofficial recipients automatically receive extra friendly emojis.
+          <p className="text-xs text-[var(--muted)]">
+            Compare Official (strictly professional, 0 emojis) and Unofficial (friendly with emojis) columns side by side before sending.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {recipientType === 'unofficial' && (
+          <VoiceSpeakButton
+            isSpeaking={isSpeaking}
+            onSpeak={() =>
+              speak(
+                `Recipient: ${recipientName || recipientEmail}. Subject: ${subject}. Message: ${body}`
+              )
+            }
+            onStop={stopSpeaking}
+            label="Read Draft"
+            size="sm"
+          />
+          {recipientType === 'official' ? (
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-500/30">
+              <Briefcase className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>Official · 0 Emojis</span>
+            </span>
+          ) : (
             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-pink-500/15 text-pink-700 dark:text-pink-300 border border-pink-500/30">
               <span>Unofficial · Extra Emojis ✨</span>
             </span>
@@ -281,6 +368,96 @@ export function EmailPreviewCard({
           {actionError}
         </div>
       )}
+
+      {voiceError && (
+        <div
+          role="alert"
+          className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-200"
+        >
+          {voiceError}
+        </div>
+      )}
+
+      {/* Side-by-Side Official vs Unofficial Columns */}
+      <div className="mb-5 grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div
+          className={`rounded-xl border p-4 space-y-2.5 transition ${
+            recipientType === 'official'
+              ? 'border-blue-600 bg-blue-500/5 ring-2 ring-blue-500/20'
+              : 'border-[var(--border)] bg-[var(--card-elevated)] opacity-85 hover:opacity-100'
+          }`}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Briefcase className="w-4 h-4 text-blue-600 dark:text-blue-400" aria-hidden="true" />
+              <h3 className="text-sm font-bold">Official Column</h3>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
+                <ShieldCheck className="w-3 h-3" aria-hidden="true" />0 Emojis
+              </span>
+            </div>
+            {!isLocked && (
+              <button
+                type="button"
+                onClick={() => handleRecipientTypeChange('official')}
+                className={`px-3 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                  recipientType === 'official'
+                    ? 'bg-blue-600 text-white'
+                    : 'border border-[var(--border)] hover:border-blue-500'
+                }`}
+              >
+                {recipientType === 'official' ? 'Active Column' : 'Use Official'}
+              </button>
+            )}
+          </div>
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-3 space-y-1.5 text-xs">
+            <div className="font-semibold text-[var(--text)]">
+              Subject: {officialPreview.subject || '(Subject)'}
+            </div>
+            <p className="whitespace-pre-wrap text-[var(--muted)] line-clamp-4 leading-relaxed">
+              {officialPreview.body || '(Professional body without emojis)'}
+            </p>
+          </div>
+        </div>
+
+        <div
+          className={`rounded-xl border p-4 space-y-2.5 transition ${
+            recipientType === 'unofficial'
+              ? 'border-pink-500 bg-pink-500/5 ring-2 ring-pink-500/20'
+              : 'border-[var(--border)] bg-[var(--card-elevated)] opacity-85 hover:opacity-100'
+          }`}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-pink-600 dark:text-pink-400" aria-hidden="true" />
+              <h3 className="text-sm font-bold">Unofficial Column</h3>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-pink-500/15 text-pink-700 dark:text-pink-300">
+                Friendly · Emojis ✨
+              </span>
+            </div>
+            {!isLocked && (
+              <button
+                type="button"
+                onClick={() => handleRecipientTypeChange('unofficial')}
+                className={`px-3 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                  recipientType === 'unofficial'
+                    ? 'bg-pink-600 text-white'
+                    : 'border border-[var(--border)] hover:border-pink-500'
+                }`}
+              >
+                {recipientType === 'unofficial' ? 'Active Column' : 'Use Unofficial'}
+              </button>
+            )}
+          </div>
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-3 space-y-1.5 text-xs">
+            <div className="font-semibold text-[var(--text)]">
+              Subject: {unofficialPreview.subject || '(Subject ✨)'}
+            </div>
+            <p className="whitespace-pre-wrap text-[var(--muted)] line-clamp-4 leading-relaxed">
+              {unofficialPreview.body || '(Friendly body with expressive emojis)'}
+            </p>
+          </div>
+        </div>
+      </div>
 
       <form onSubmit={handleSave} className="space-y-3.5">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -373,17 +550,45 @@ export function EmailPreviewCard({
             <label htmlFor="draft-body" className="block text-xs font-medium">
               Message / Letter <span aria-hidden="true">*</span>
             </label>
-            {!isLocked && (
-              <button
-                type="button"
-                onClick={handleBoostEmojis}
-                className="inline-flex items-center gap-1 text-xs font-medium text-pink-600 dark:text-pink-400 hover:underline"
-              >
-                <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
-                <span>Add Extra Emojis ✨</span>
-              </button>
-            )}
+            <div className="flex flex-wrap items-center gap-2">
+              {!isLocked && (
+                <VoiceMicButton
+                  isListening={isListening}
+                  onClick={startListening}
+                  supported={speechSupported}
+                  label="Dictate Body"
+                  stopLabel="Stop Mic"
+                  size="sm"
+                />
+              )}
+              {!isLocked && recipientType === 'official' && officialEmojiCount > 0 && (
+                <button
+                  type="button"
+                  onClick={handleCleanOfficialEmojis}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-amber-600 dark:text-amber-400 hover:underline cursor-pointer"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span>Strip {officialEmojiCount} Emoji(s) for Official Mode</span>
+                </button>
+              )}
+              {!isLocked && recipientType === 'unofficial' && (
+                <button
+                  type="button"
+                  onClick={handleBoostEmojis}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-pink-600 dark:text-pink-400 hover:underline cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span>Add Extra Emojis ✨</span>
+                </button>
+              )}
+            </div>
           </div>
+          {isListening && (
+            <p className="mb-2 text-xs text-blue-600 dark:text-blue-400">
+              Listening for message dictation:{' '}
+              <span className="font-medium">{interimTranscript || 'speak now...'}</span>
+            </p>
+          )}
           <textarea
             id="draft-body"
             name="body"

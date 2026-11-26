@@ -6,15 +6,19 @@ import {
   LayoutDashboard,
   LogOut,
   Mail,
+  Moon,
   Settings2,
   Sparkles,
+  Sun,
   Users,
 } from 'lucide-react'
 import { useAuth } from '../context/useAuth'
+import { useTheme } from '../context/useTheme'
 import { SenderSetupDialog } from './SenderSetupDialog'
 
 export function Navbar() {
   const { user, integrations, logout } = useAuth()
+  const { isDark, toggleTheme } = useTheme()
   const navigate = useNavigate()
   const [senderModalOpen, setSenderModalOpen] = useState(false)
 
@@ -37,7 +41,7 @@ export function Navbar() {
     : 'Sender Setup (Sandbox Ready)'
 
   return (
-    <header className="border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur sticky top-0 z-30">
+    <header className="border-b border-[var(--border)] bg-white/85 dark:bg-slate-950/85 backdrop-blur-md sticky top-0 z-30">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-6">
           <Link to="/dashboard" className="flex items-center gap-2.5 font-bold text-lg tracking-tight">
@@ -64,6 +68,26 @@ export function Navbar() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            type="button"
+            onClick={toggleTheme}
+            aria-label={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+            title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+            className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--card-elevated)] px-3 py-1.5 text-xs font-semibold text-[var(--text)] hover:border-blue-400 dark:hover:border-blue-500 transition cursor-pointer"
+          >
+            {isDark ? (
+              <>
+                <Sun className="w-3.5 h-3.5 text-amber-400" />
+                <span>Light</span>
+              </>
+            ) : (
+              <>
+                <Moon className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Dark</span>
+              </>
+            )}
+          </button>
+
           <span
             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${
               integrations.geminiConfigured

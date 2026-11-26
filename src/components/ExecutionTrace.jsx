@@ -1,5 +1,7 @@
 import { Activity, AlertTriangle, RefreshCw, ShieldCheck, Terminal, Wrench } from 'lucide-react'
+import { useVoiceAssistant } from '../hooks/useVoiceAssistant'
 import { StatusBadge } from './StatusBadge'
+import { VoiceSpeakButton } from './VoiceControls'
 
 const TYPE_META = {
   plan: { label: 'Plan', Icon: Activity },
@@ -27,10 +29,12 @@ function JsonBlock({ label, data }) {
 }
 
 export function ExecutionTrace({ trace = [], finalSummary = '', error = '' }) {
+  const { isSpeaking, speak, stopSpeaking } = useVoiceAssistant()
+
   return (
     <section
       aria-labelledby="trace-heading"
-      className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-sm"
+      className="mp-card p-5"
     >
       <div className="flex items-center justify-between gap-2 mb-4">
         <div>
@@ -57,9 +61,18 @@ export function ExecutionTrace({ trace = [], finalSummary = '', error = '' }) {
 
       {finalSummary && (
         <div className="mb-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 text-sm">
-          <p className="font-semibold text-emerald-800 dark:text-emerald-200 mb-1">
-            Agent Summary
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+            <p className="font-semibold text-emerald-800 dark:text-emerald-200">
+              Agent Summary
+            </p>
+            <VoiceSpeakButton
+              isSpeaking={isSpeaking}
+              onSpeak={() => speak(finalSummary)}
+              onStop={stopSpeaking}
+              label="Read Summary"
+              size="sm"
+            />
+          </div>
           <p className="whitespace-pre-wrap text-slate-700 dark:text-slate-200">{finalSummary}</p>
         </div>
       )}

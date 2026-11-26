@@ -137,6 +137,29 @@ export function ContactsPage() {
     }
   }
 
+  const handleQuickToggleType = async (contact) => {
+    setError('')
+    const nextType = contact.relationshipType === 'unofficial' ? 'official' : 'unofficial'
+    try {
+      const res = await api.put(`/contacts/${contact._id}`, {
+        name: contact.name,
+        email: contact.email,
+        company: contact.company || '',
+        role: contact.role || '',
+        relationshipType: nextType,
+        tags: contact.tags || [],
+        notes: contact.notes || '',
+      })
+      const updated = res.data.contact
+      setContacts((prev) => prev.map((c) => (c._id === contact._id ? updated : c)))
+    } catch (err) {
+      setError(extractApiError(err, 'Failed to update contact category.'))
+    }
+  }
+
+  const officialContacts = contacts.filter((c) => c.relationshipType !== 'unofficial')
+  const unofficialContacts = contacts.filter((c) => c.relationshipType === 'unofficial')
+
   return (
     <div className="min-h-screen flex flex-col">
       <Navbar />
@@ -339,73 +362,114 @@ export function ContactsPage() {
                 No contacts found. Add contacts on the left or click &ldquo;Add Sample Contacts&rdquo;.
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {contacts.map((c) => (
-                  <article
-                    key={c._id}
-                    className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-2"
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                {[
+                  {
+                    key: 'official',
+                    title: 'Official Contacts',
+                    subtitle: 'Professional & formal · 0 emojis in output',
+                    items: officialContacts,
+                    headerClass: 'border-blue-500/25 bg-blue-500/5 text-blue-700 dark:text-blue-300',
+                    badgeClass: 'bg-blue-600 text-white',
+                  },
+                  {
+                    key: 'unofficial',
+                    title: 'Unofficial Contacts',
+                    subtitle: 'Friends & family · Warm emojis enabled ✨',
+                    items: unofficialContacts,
+                    headerClass: 'border-pink-500/25 bg-pink-500/5 text-pink-700 dark:text-pink-300',
+                    badgeClass: 'bg-pink-600 text-white',
+                  },
+                ].map((column) => (
+                  <div
+                    key={column.key}
+                    className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-3.5 space-y-3"
                   >
-                    <div className="flex items-start justify-between gap-2">
+                    <div className={`rounded-xl border px-3 py-2.5 flex items-center justify-between gap-2 ${column.headerClass}`}>
                       <div>
-                        <div className="flex items-center gap-2">
-                          <h3 className="font-semibold text-sm">{c.name}</h3>
-                          <span
-                            className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                              c.relationshipType === 'unofficial'
-                                ? 'bg-pink-500/15 text-pink-700 dark:text-pink-300'
-                                : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
-                            }`}
-                          >
-                            {c.relationshipType === 'unofficial' ? 'Unofficial ✨' : 'Official'}
-                          </span>
-                        </div>
-                        <p className="text-xs text-blue-600 dark:text-blue-400 break-all">
-                          {c.email}
-                        </p>
+                        <h2 className="text-sm font-bold tracking-tight">{column.title}</h2>
+                        <p className="text-[11px] opacity-85">{column.subtitle}</p>
                       </div>
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => handleEdit(c)}
-                          aria-label={`Edit ${c.name}`}
-                          className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
-                        >
-                          <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(c._id)}
-                          aria-label={`Delete ${c.name}`}
-                          className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-500/10"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-                        </button>
-                      </div>
+                      <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${column.badgeClass}`}>
+                        {column.items.length}
+                      </span>
                     </div>
 
-                    {(c.role || c.company) && (
-                      <p className="text-xs text-slate-600 dark:text-slate-300">
-                        {[c.role, c.company].filter(Boolean).join(' · ')}
+                    {column.items.length === 0 ? (
+                      <p className="text-xs text-[var(--muted)] py-6 text-center border border-dashed border-[var(--border)] rounded-xl">
+                        No {column.key} contacts yet.
                       </p>
-                    )}
-
-                    {c.notes && (
-                      <p className="text-xs text-slate-500 dark:text-slate-400">{c.notes}</p>
-                    )}
-
-                    {c.tags?.length > 0 && (
-                      <div className="flex flex-wrap gap-1 pt-1">
-                        {c.tags.map((tag) => (
-                          <span
-                            key={tag}
-                            className="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
+                    ) : (
+                      <div className="space-y-2.5">
+                        {column.items.map((c) => (
+                          <article
+                            key={c._id}
+                            className="rounded-xl border border-[var(--border)] bg-[var(--card-elevated)] p-3.5 space-y-2 transition hover:border-blue-400/60"
                           >
-                            {tag}
-                          </span>
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <h3 className="font-semibold text-sm">{c.name}</h3>
+                                </div>
+                                <p className="text-xs text-blue-600 dark:text-blue-400 break-all">
+                                  {c.email}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleQuickToggleType(c)}
+                                  className="px-2 py-1 rounded-lg text-[10px] font-semibold border border-[var(--border)] hover:border-blue-400 transition cursor-pointer"
+                                  title="Move between Official and Unofficial columns"
+                                >
+                                  Move to {c.relationshipType === 'unofficial' ? 'Official' : 'Unofficial'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleEdit(c)}
+                                  aria-label={`Edit ${c.name}`}
+                                  className="p-1.5 rounded-lg hover:bg-slate-200/70 dark:hover:bg-slate-800"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDelete(c._id)}
+                                  aria-label={`Delete ${c.name}`}
+                                  className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-500/10"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                                </button>
+                              </div>
+                            </div>
+
+                            {(c.role || c.company) && (
+                              <p className="text-xs text-slate-600 dark:text-slate-300">
+                                {[c.role, c.company].filter(Boolean).join(' · ')}
+                              </p>
+                            )}
+
+                            {c.notes && (
+                              <p className="text-xs text-slate-500 dark:text-slate-400">{c.notes}</p>
+                            )}
+
+                            {c.tags?.length > 0 && (
+                              <div className="flex flex-wrap gap-1 pt-0.5">
+                                {c.tags.map((tag) => (
+                                  <span
+                                    key={tag}
+                                    className="text-[11px] px-2 py-0.5 rounded-full bg-slate-200/70 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
+                                  >
+                                    {tag}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </article>
                         ))}
                       </div>
                     )}
-                  </article>
+                  </div>
                 ))}
               </div>
             )}

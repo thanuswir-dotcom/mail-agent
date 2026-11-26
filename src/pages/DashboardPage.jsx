@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Sparkles, Wand2 } from 'lucide-react'
+import { Briefcase, ShieldCheck, Sparkles, Wand2 } from 'lucide-react'
 import { api, extractApiError } from '../api/client'
 import { EmailPreviewCard } from '../components/EmailPreviewCard'
 import { ExecutionTrace } from '../components/ExecutionTrace'
 import { Navbar } from '../components/Navbar'
 import { PlanEditor } from '../components/PlanEditor'
 import { StatusBadge } from '../components/StatusBadge'
+import { VoiceMicButton, VoiceSpeakButton } from '../components/VoiceControls'
 import { useAuth } from '../context/useAuth'
+import { useVoiceAssistant } from '../hooks/useVoiceAssistant'
 
 const SAMPLE_GOALS = [
   'Send a friendly hi letter to my friend kethireddybhuvana69@gmail.com asking how her weekend is going.',
@@ -20,6 +22,7 @@ export function DashboardPage() {
   const [searchParams, setSearchParams] = useSearchParams()
 
   const [goal, setGoal] = useState('')
+  const [toneMode, setToneMode] = useState('auto')
   const [currentTask, setCurrentTask] = useState(null)
   const [recentTasks, setRecentTasks] = useState([])
 
@@ -28,6 +31,21 @@ export function DashboardPage() {
   const [startingRun, setStartingRun] = useState(false)
   const [stoppingRun, setStoppingRun] = useState(false)
   const [banner, setBanner] = useState(null)
+
+  const {
+    speechSupported,
+    isListening,
+    isSpeaking,
+    interimTranscript,
+    voiceError,
+    startListening,
+    speak,
+    stopSpeaking,
+  } = useVoiceAssistant({
+    onTranscript: (spoken) => {
+      setGoal((prev) => (prev.trim() ? `${prev.trim()} ${spoken}` : spoken))
+    },
+  })
 
   const loadRecentTasks = useCallback(async () => {
     try {
@@ -63,6 +81,7 @@ export function DashboardPage() {
           if (cancelled) return
           setCurrentTask(res.data.task)
           setGoal(res.data.task.goal || '')
+          setToneMode(res.data.task.emailDraft?.toneMode || 'auto')
         })
         .catch((err) => {
           if (cancelled) return
@@ -125,7 +144,7 @@ export function DashboardPage() {
     setBanner(null)
     setGeneratingPlan(true)
     try {
-      const res = await api.post('/tasks/plan', { goal: goal.trim() })
+      const res = await api.post('/tasks/plan', { goal: goal.trim(), toneMode })
       setCurrentTask(res.data.task)
       setSearchParams({ task: res.data.task._id }, { replace: true })
       loadRecentTasks()
@@ -251,23 +270,65 @@ export function DashboardPage() {
         {/* Goal Composer */}
         <section
           aria-labelledby="goal-composer-heading"
-          className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-sm"
+          className="mp-card p-5 sm:p-6 relative overflow-hidden"
         >
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
             <div>
-              <h1 id="goal-composer-heading" className="text-lg font-bold tracking-tight">
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/20 mb-1.5">
+                <Sparkles className="w-3 h-3" aria-hidden="true" />
+                <span>AI Email Command Center · Voice &amp; Tone Aware</span>
+              </div>
+              <h1 id="goal-composer-heading" className="text-xl font-bold tracking-tight">
                 Email Goal Workspace
               </h1>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Describe what you want to accomplish in plain English. Gemini will generate an editable plan and select real tools.
+              <p className="text-xs text-[var(--muted)] mt-0.5">
+                Type or dictate your goal in plain English, pick Official (zero emojis) or Unofficial mode, and review every draft before sending.
               </p>
             </div>
-            {currentTask && <StatusBadge status={currentTask.status} />}
+            <div className="flex flex-wrap items-center gap-2">
+              <VoiceMicButton
+                isListening={isListening}
+                onClick={startListening}
+                supported={speechSupported}
+                label="Dictate Goal"
+                stopLabel="Stop Mic"
+                size="sm"
+              />
+              {goal.trim() && (
+                <VoiceSpeakButton
+                  isSpeaking={isSpeaking}
+                  onSpeak={() => speak(goal)}
+                  onStop={stopSpeaking}
+                  label="Read Goal"
+                  size="sm"
+                />
+              )}
+              {currentTask && <StatusBadge status={currentTask.status} />}
+            </div>
           </div>
 
-          <form onSubmit={handleGeneratePlan} className="space-y-3">
+          {voiceError && (
+            <div
+              role="alert"
+              className="mb-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2 text-xs text-amber-800 dark:text-amber-200"
+            >
+              {voiceError}
+            </div>
+          )}
+
+          {isListening && (
+            <div className="mb-3 rounded-xl border border-blue-500/30 bg-blue-500/10 px-3.5 py-2 text-xs text-blue-800 dark:text-blue-200 flex items-center justify-between gap-2">
+              <span>
+                <strong>Listening:</strong>{' '}
+                {interimTranscript || 'Speak your email goal clearly into your microphone...'}
+              </span>
+              <span className="inline-block w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+            </div>
+          )}
+
+          <form onSubmit={handleGeneratePlan} className="space-y-4">
             <div>
-              <label htmlFor="goal-input" className="block text-xs font-medium mb-1">
+              <label htmlFor="goal-input" className="block text-xs font-semibold mb-1.5">
                 Plain-English Email Goal <span aria-hidden="true">*</span>
               </label>
               <textarea
@@ -279,19 +340,88 @@ export function DashboardPage() {
                 value={goal}
                 onChange={(e) => setGoal(e.target.value)}
                 placeholder="e.g., Find Sarah from Design in my contacts, check my calendar availability tomorrow afternoon, and draft a 30-min sync invite."
-                className="mp-input w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3.5 py-2.5 text-sm"
+                className="mp-input"
               />
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-3">
+            {/* Official vs Unofficial Columns */}
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-[var(--text)]">
+                  Output Column Mode
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setToneMode('auto')}
+                  className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border transition cursor-pointer ${
+                    toneMode === 'auto'
+                      ? 'bg-slate-900 text-white border-slate-900 dark:bg-slate-100 dark:text-slate-900 dark:border-slate-100'
+                      : 'border-[var(--border)] text-[var(--muted)] hover:text-[var(--text)]'
+                  }`}
+                >
+                  {toneMode === 'auto' ? 'Auto-Detect Active' : 'Reset to Auto-Detect'}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setToneMode('official')}
+                  className={`text-left rounded-xl border p-3.5 transition cursor-pointer ${
+                    toneMode === 'official'
+                      ? 'border-blue-600 bg-blue-500/10 ring-2 ring-blue-500/20'
+                      : 'border-[var(--border)] bg-[var(--card-elevated)] hover:border-blue-400'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="inline-flex items-center gap-1.5 text-sm font-bold text-[var(--text)]">
+                      <Briefcase className="w-4 h-4 text-blue-600 dark:text-blue-400" aria-hidden="true" />
+                      <span>Official Column</span>
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25">
+                      <ShieldCheck className="w-3 h-3" aria-hidden="true" />
+                      0 Emojis
+                    </span>
+                  </div>
+                  <p className="text-xs text-[var(--muted)]">
+                    Formal, executive business formatting with crisp sign-off and zero emojis in subject or body.
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setToneMode('unofficial')}
+                  className={`text-left rounded-xl border p-3.5 transition cursor-pointer ${
+                    toneMode === 'unofficial'
+                      ? 'border-pink-500 bg-pink-500/10 ring-2 ring-pink-500/20'
+                      : 'border-[var(--border)] bg-[var(--card-elevated)] hover:border-pink-400'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="inline-flex items-center gap-1.5 text-sm font-bold text-[var(--text)]">
+                      <Sparkles className="w-4 h-4 text-pink-600 dark:text-pink-400" aria-hidden="true" />
+                      <span>Unofficial Column</span>
+                    </span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-pink-500/15 text-pink-700 dark:text-pink-300 border border-pink-500/25">
+                      Warm Emojis ✨
+                    </span>
+                  </div>
+                  <p className="text-xs text-[var(--muted)]">
+                    Friendly, conversational letter or message for friends and family with expressive emojis.
+                  </p>
+                </button>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
               <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-xs text-slate-500 dark:text-slate-400 mr-1">Examples:</span>
+                <span className="text-xs text-[var(--muted)] mr-1">Examples:</span>
                 {SAMPLE_GOALS.map((sample, idx) => (
                   <button
                     key={idx}
                     type="button"
                     onClick={() => setGoal(sample)}
-                    className="text-xs px-2.5 py-1 rounded-full border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800"
+                    className="text-xs px-2.5 py-1 rounded-full border border-[var(--border)] hover:bg-slate-200/60 dark:hover:bg-slate-800 transition cursor-pointer"
                   >
                     Example {idx + 1}
                   </button>
@@ -301,7 +431,7 @@ export function DashboardPage() {
               <button
                 type="submit"
                 disabled={generatingPlan || currentTask?.status === 'running'}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 shadow-sm shadow-blue-600/25 disabled:opacity-50 cursor-pointer"
               >
                 <Wand2 className="w-4 h-4" aria-hidden="true" />
                 <span>{generatingPlan ? 'Generating Plan...' : 'Generate Plan'}</span>
